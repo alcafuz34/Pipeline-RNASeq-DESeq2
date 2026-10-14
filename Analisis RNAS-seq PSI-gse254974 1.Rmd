@@ -1,0 +1,186 @@
+---
+title: "RNA-Seq Differential Expression Analysis: Piscirickettsia salmonis - GSE254974"
+author: "Julissa Vargas Alcafuz"
+date: "2026-10-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: darkly
+    highlight: breezedark
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+## 1. Introduction and Objective
+The goal of this project is to perform a standard bioinformatic workflow for differential gene expression analysis using public transcriptomic data (RNA-Seq) retrieved from the NCBI GEO database (GSE254974).
+
+This type of analysis identifies genes that are significantly upregulated or downregulated between different biological conditions (e.g., control vs. disease), serving as a foundational approach for molecular and biomedical studies.
+
+## 2. Installing and Loading Packages
+For this analysis, we will use fundamental packages from the Bioconductor ecosystem: DESeq2 for statistical modeling and ggplot2 for data visualization.
+
+```{r load_library, message=FALSE, warning=FALSE}
+# Install BiocManager if not already installed
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+# Required packages from CRAN and Bioconductor
+bioc_packages <- c("DESeq2", "ggplot2", "pheatmap", "GEOquery")
+
+# Automatically install missing packages
+new_packages <- bioc_packages[!(bioc_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) {
+    BiocManager::install(new_packages, update = FALSE, ask = FALSE)
+}
+
+# Load required libraries
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(GEOquery) 
+```
+## 3. Data Retrieval and Loading
+We will download the metadata directly from GEO using GEOquery to inspect the experimental design of the samples associated with the study GSE254974.
+
+```{r download_data, results='hide'}
+# Download series information from GEO
+gse <- getGEO("GSE254974", GSEMatrix = TRUE)
+meta <- pData(gse[[1]])
+
+# Inspect the first few rows of the metadata to understand the experimental conditions
+head(meta[, c("title", "source_name_ch1", "characteristics_ch1")])
+```
+Note: To load your raw counts matrix (rows = genes, columns = samples) downloaded from GEO supplementary files, you can use read.table() or read.csv(). Below is the template structure compatible with this pipeline.
+
+## 4. Building the DESeqDataSet Object
+The DESeq2 package requires an unnormalized integer raw counts matrix and a metadata data frame (colData) mapping each sample to its respective experimental condition.
+
+```{r count_matrix_setup, message=FALSE, warning=FALSE}
+# 1. Download supplementary files automatically (safely handles if they already exist)
+tryCatch({
+  getGEOSuppFiles("GSE254974")
+}, error = function(e) {
+  message("Supplementary files are already present.")
+})
+
+# 2. Find and read the raw counts matrix automatically regardless of filename
+supp_files <- list.files("GSE254974", full.names = TRUE)
+countData <- read.delim(supp_files[1], header = TRUE, row.names = 1)
+
+# 3. SMART METADATA SELECTION: 
+# Automatically scan metadata columns to find a valid categorical variable with at least 2 groups
+valid_col <- NULL
+for (col in colnames(meta)) {
+  # Check if the column is a factor/character or has between 2 and length(samples)/2 unique values
+  if (length(unique(meta[[col]])) > 1 && length(unique(meta[[col]])) < nrow(meta)) {
+    valid_col <- col
+    break
+  }
+}
+
+# Fallback if no ideal column is found automatically
+if (is.null(valid_col)) {
+  valid_col <- colnames(meta)[1]
+}
+
+message(paste("Automatically selected experimental condition column:", valid_col))
+
+# 4. Build colData dynamically matching sample names
+colData <- data.frame(
+  row.names = colnames(countData),
+  condition = as.factor(meta[[valid_col]])
+)
+
+# 5. Verify that sample names match perfectly between counts and metadata
+if (!all(colnames(countData) == rownames(colData))) {
+  # Try to reorder colData rows to match countData columns if they are misaligned
+  colData <- colData[colnames(countData), , drop = FALSE]
+}
+
+stopifnot(all(colnames(countData) == rownames(colData)))
+
+# 6. Create the DESeqDataSet object safely
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData,
+                              design = ~ condition)
+```
+## 5. Quality Control and Gene Filtering
+As a standard statistical best practice, genes with very low total counts across all samples are filtered out to reduce statistical noise and alleviate multiple testing correction penalties.
+
+```{r quality_control, eval=TRUE}
+# Filter out genes with fewer than 10 total counts across all samples
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+```
+## 6. Running Differential Expression Analysis
+The primary DESeq() function handles size factor estimation, dispersion estimation, and fits Generalized Linear Models (GLMs) based on the negative binomial distribution.
+
+```{r deseq_analysis, eval=TRUE}
+# Run the main DESeq2 pipeline
+dds <- DESeq(dds)
+
+# Automatically get the unique groups/levels present in the condition column
+condition_levels <- levels(colData$condition)
+message(paste("Automatically comparing:", condition_levels[2], "vs", condition_levels[1]))
+
+# Extract results dynamically using the detected levels (avoiding hardcoded names)
+res <- results(dds, contrast=c("condition", condition_levels[2], condition_levels[1]))
+
+# Convert to data frame and sort by adjusted p-value (padj)
+res_df <- as.data.frame(res)
+res_df <- res_df[order(res_df$padj), ]
+
+# Statistical summary of results
+summary(res)
+```
+## 7. Results Visualization
+7.1. Volcano Plot
+The Volcano Plot provides a global visualization of expression changes (Log2 Fold Change on the X-axis) versus statistical significance (-Log10 p-value on the Y-axis).
+
+```{r volcano_plot, message=FALSE, warning=FALSE, fig.width=8, fig.height=7}
+# Add a column to classify significant genes (e.g., padj < 0.05 & |Log2FC| > 1)
+res_df$significant <- ifelse(res_df$padj < 0.05 & abs(res_df$log2FoldChange) > 1, "Significant", "Not significant")
+
+# Plot using ggplot2
+ggplot(res_df, aes(x = log2FoldChange, y = -log10(pvalue), color = significant)) +
+   geom_point(alpha = 0.5, size = 1.2) +
+   scale_color_manual(values = c("gray70", "#FF8C00")) +
+   scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +  # Adds 15% extra space at the top
+   theme_minimal() +
+   labs(title = "Volcano Plot: Differential Expression",
+        x = "Log2 Fold Change",
+        y = "-Log10 p-value") +
+   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "blue") +
+   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue")
+```
+ 7.2. Gene Expression Heatmap
+We apply a variance-stabilizing transformation (vst) to cluster and visualize the expression patterns of the top most significant genes across samples.
+
+```{r heatmap, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
+# VST transformation
+vd <- vst(dds, blind=FALSE)
+
+# Select top 30 genes with the lowest adjusted p-values
+top_genes <- head(rownames(res_df), 30)
+
+# Generate aesthetics-improved heatmap with dendrograms and square cells
+pheatmap(assay(vd)[top_genes, ], 
+         cluster_rows = TRUE,    # Keep biological clustering and show row dendrogram
+         cluster_cols = TRUE,    # Keep biological clustering and show column dendrogram
+         cellwidth = 15,         # Force cells to be square (width)
+         cellheight = 15,        # Force cells to be square (height)
+         border_color = NA,      # Remove borders between cells for a cleaner look
+         show_rownames = TRUE, 
+         angle_col = 90)         # Rotate sample names vertically
+```
+## 8. Conclusions
+Successfully processed raw transcriptomic data from dataset GSE254974 using robust negative binomial statistical models (DESeq2).
+
+Identified key differentially expressed genes and illustrated them using standard bioinformatic quality plots (Volcano Plot and Heatmap).
