@@ -16,7 +16,7 @@ This repository contains a fully automated, reproducible R/Bioconductor pipeline
 
 ### Volcano Plot
 *Highlights significantly up- and down-regulated genes across the entire transcriptome (padj < 0.05, |Log2FC| > 1), with dynamic axis scaling.*
-![Volcano Plot](VolcanoPlot.png)
+![Volcano Plot][(VolcanoPlot.png)](https://github.com/alcafuz34/Pipeline-RNASeq-DESeq2/blob/main/GraphicsGSE254974/VolcanoPlot.png)
 
 ## 🛠️ Usage
 1. Clone this repository to your local machine.
