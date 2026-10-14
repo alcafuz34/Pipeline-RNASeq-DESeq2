@@ -12,7 +12,7 @@ This repository contains a fully automated, reproducible R/Bioconductor pipeline
 
 ### Gene Expression Heatmap
 *Displays the top 30 most significant differentially expressed genes across samples, maintaining biological clustering while optimizing aesthetics.*
-![Heatmap](HeatmapGSE254974.png)
+![Heatmap]([HeatmapGSE254974.png](https://github.com/alcafuz34/Pipeline-RNASeq-DESeq2/blob/main/GraphicsGSE254974/HeatmapGSE254974.png)
 
 ### Volcano Plot
 *Highlights significantly up- and down-regulated genes across the entire transcriptome (padj < 0.05, |Log2FC| > 1), with dynamic axis scaling.*
